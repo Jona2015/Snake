@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SNAKE</title>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --green: #39ff14;
+    --green-dim: #1a7a09;
+    --orange: #ff6b00;
+    --yellow: #ffe600;
+    --red: #ff2d2d;
+    --bg: #050a05;
+    --cell: #0a0f0a;
+    --cell-alt: #0c120c;
+    --border: #1a2a1a;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Press Start 2P', monospace;
+    overflow: hidden;
+    position: relative;
+  }
+
+  /* CRT vignette */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background: radial-gradient(ellipse at center, transparent 60%, rgba(0,0,0,0.85) 100%);
+    pointer-events: none; z-index: 100;
+  }
+
+  /* Scanlines */
+  body::after {
+    content: '';
+    position: fixed; inset: 0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.12) 2px, rgba(0,0,0,0.12) 4px);
+    pointer-events: none; z-index: 101;
+  }
+
+  #title {
+    font-size: clamp(20px, 5vw, 36px);
+    color: var(--green);
+    letter-spacing: 0.3em;
+    text-shadow: 0 0 10px var(--green), 0 0 30px var(--green), 0 0 60px rgba(57,255,20,0.4);
+    margin-bottom: 18px;
+    animation: titlePulse 3s ease-in-out infinite;
+  }
+
+  @keyframes titlePulse {
+    0%,100% { text-shadow: 0 0 10px var(--green), 0 0 30px var(--green), 0 0 60px rgba(57,255,20,0.4); }
+    50% { text-shadow: 0 0 15px var(--green), 0 0 50px var(--green), 0 0 90px rgba(57,255,20,0.6); }
+  }
+
+  #scorebar {
+    display: flex;
+    gap: clamp(20px, 5vw, 50px);
+    margin-bottom: 12px;
+    font-size: clamp(7px, 1.5vw, 11px);
+    color: #4a6a4a;
+    letter-spacing: 0.1em;
+  }
+
+  #scorebar span { color: var(--green); font-size: clamp(12px, 2.5vw, 18px); }
+  #scorebar .hs { color: var(--orange); }
+  #scorebar .lv { color: #a78bfa; }
+
+  #arena-wrap {
+    position: relative;
+    border: 3px solid #1a2a1a;
+    box-shadow:
+      0 0 0 1px #0f1f0f,
+      0 0 40px rgba(57,255,20,0.15),
+      inset 0 0 80px rgba(0,0,0,0.8);
+  }
+
+  canvas {
+    display: block;
+    image-rendering: pixelated;
+  }
+
+  #overlay {
+    position: absolute; inset: 0;
+    background: rgba(0,0,0,0.88);
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 18px;
+    z-index: 10;
+    transition: opacity 0.3s;
+  }
+
+  #overlay.hidden { display: none; }
+
+  #overlay-title {
+    font-size: clamp(14px, 3vw, 22px);
+    letter-spacing: 0.3em;
+    text-shadow: 0 0 20px currentColor;
+  }
+
+  #overlay-score { font-size: clamp(9px, 1.8vw, 13px); color: #666; }
+  #overlay-score span { color: var(--green); }
+
+  #overlay-hint {
+    font-size: clamp(7px, 1.3vw, 10px);
+    color: #333;
+    letter-spacing: 0.2em;
+    animation: blink 1s step-end infinite;
+  }
+
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+
+  /* D-Pad */
+  #dpad {
+    margin-top: 24px;
+    display: grid;
+    grid-template-columns: repeat(3, 52px);
+    grid-template-rows: repeat(3, 52px);
+    gap: 5px;
+  }
+
+  .dpad-btn {
+    background: #0f1a0f;
+    border: 2px solid #1a2a1a;
+    border-radius: 8px;
+    color: var(--green);
+    font-size: 18px;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.1s;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+
+  .dpad-btn:active, .dpad-btn.pressed {
+    background: #1a2a1a;
+    border-color: var(--green);
+    box-shadow: 0 0 10px rgba(57,255,20,0.4);
+    transform: scale(0.9);
+  }
+
+  .dpad-center {
+    font-size: 9px;
+    letter-spacing: 0;
+    color: #333;
+    font-family: 'Press Start 2P', monospace;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  #hint {
+    margin-top: 14px;
+    font-size: 8px;
+    color: #222;
+    letter-spacing: 0.2em;
+    text-align: center;
+  }
+
+  @keyframes flash { 0%,100%{opacity:1} 50%{opacity:0.3} }
+  .score-flash { animation: flash 0.15s ease-in-out 2; }
+</style>
+</head>
+<body>
+
+<div id="title">SNAKE</div>
+
+<div id="scorebar">
+  <div>SCORE <span id="score">0000</span></div>
+  <div>BEST <span id="highscore" class="hs">0000</span></div>
+  <div>LV <span id="level" class="lv">01</span></div>
+</div>
+
+<div id="arena-wrap">
+  <canvas id="c"></canvas>
+  <div id="overlay">
+    <div id="overlay-title" style="color: var(--green)">SNAKE</div>
+    <div id="overlay-score" style="display:none">SCORE: <span id="final-score">0</span></div>
+    <div id="overlay-hint">[ SPACE ] STARTEN</div>
+  </div>
+</div>
+
+<div id="dpad">
+  <div></div>
+  <button class="dpad-btn" id="btn-up" onpointerdown="dpadPress('UP')">▲</button>
+  <div></div>
+  <button class="dpad-btn" id="btn-left" onpointerdown="dpadPress('LEFT')">◀</button>
+  <button class="dpad-btn dpad-center" id="btn-center" onpointerdown="togglePause()">
+    <span id="pause-icon">⏸</span>
+  </button>
+  <button class="dpad-btn" id="btn-right" onpointerdown="dpadPress('RIGHT')">▶</button>
+  <div></div>
+  <button class="dpad-btn" id="btn-down" onpointerdown="dpadPress('DOWN')">▼</button>
+  <div></div>
+</div>
+
+<div id="hint">WASD · PFEILTASTEN · SPACE=PAUSE</div>
+
+<script>
+const COLS = 20, ROWS = 20, CS = Math.min(Math.floor(Math.min(window.innerWidth * 0.9, window.innerHeight * 0.55) / 20), 28);
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+canvas.width = COLS * CS;
+canvas.height = ROWS * CS;
+
+const GREEN = '#39ff14', GREEN2 = '#2acc0e', DIM = '#0d200d', ORANGE = '#ff6b00', BG1 = '#0a0f0a', BG2 = '#0c120c';
+const DIR = { UP:{x:0,y:-1}, DOWN:{x:0,y:1}, LEFT:{x:-1,y:0}, RIGHT:{x:1,y:0} };
+const OPP = { UP:'DOWN', DOWN:'UP', LEFT:'RIGHT', RIGHT:'LEFT' };
+const KEY = { ArrowUp:'UP',w:'UP',W:'UP', ArrowDown:'DOWN',s:'DOWN',S:'DOWN', ArrowLeft:'LEFT',a:'LEFT',A:'LEFT', ArrowRight:'RIGHT',d:'RIGHT',D:'RIGHT' };
+
+let snake, food, dir, pendingDir, state, score, highScore = 0, raf, lastT, flashScore = false;
+
+function pad(n, l=4) { return String(n).padStart(l,'0'); }
+
+function rndFood(s) {
+  let p;
+  do { p = {x: Math.floor(Math.random()*COLS), y: Math.floor(Math.random()*ROWS)}; }
+  while (s.some(c => c.x===p.x && c.y===p.y));
+  return p;
+}
+
+function speed() { return Math.max(60, 150 - Math.floor(score/3)*8); }
+
+function setState(s) {
+  state = s;
+  const ov = document.getElementById('overlay');
+  const ot = document.getElementById('overlay-title');
+  const os = document.getElementById('overlay-score');
+  const oh = document.getElementById('overlay-hint');
+  const pi = document.getElementById('pause-icon');
+
+  if (s === 'playing') {
+    ov.classList.add('hidden');
+    pi.textContent = '⏸';
+  } else {
+    ov.classList.remove('hidden');
+    if (s === 'dead') {
+      ot.textContent = 'GAME OVER'; ot.style.color = '#ff2d2d';
+      ot.style.textShadow = '0 0 20px #ff2d2d';
+      os.style.display = 'block';
+      document.getElementById('final-score').textContent = score;
+      oh.textContent = '[ SPACE ] NOCHMAL';
+    } else if (s === 'paused') {
+      ot.textContent = 'PAUSE'; ot.style.color = '#ffe600';
+      ot.style.textShadow = '0 0 20px #ffe600';
+      os.style.display = 'none';
+      oh.textContent = '[ SPACE ] WEITERSPIELEN';
+      pi.textContent = '▶';
+    } else {
+      ot.textContent = 'SNAKE'; ot.style.color = GREEN;
+      ot.style.textShadow = '0 0 20px '+GREEN;
+      os.style.display = 'none';
+      oh.textContent = '[ SPACE ] STARTEN';
+      pi.textContent = '▶';
+    }
+  }
+}
+
+function start() {
+  snake = [{x:10,y:10}];
+  food = rndFood(snake);
+  dir = 'RIGHT'; pendingDir = 'RIGHT';
+  score = 0;
+  updateUI();
+  setState('playing');
+  lastT = null;
+  cancelAnimationFrame(raf);
+  raf = requestAnimationFrame(loop);
+}
+
+function updateUI() {
+  document.getElementById('score').textContent = pad(score);
+  document.getElementById('highscore').textContent = pad(highScore);
+  document.getElementById('level').textContent = pad(Math.floor(score/5)+1, 2);
+}
+
+function loop(t) {
+  if (state !== 'playing') return;
+  if (!lastT) lastT = t;
+  if (t - lastT >= speed()) {
+    lastT = t;
+    tick();
+  }
+  if (state === 'playing') raf = requestAnimationFrame(loop);
+}
+
+function tick() {
+  dir = pendingDir;
+  const d = DIR[dir];
+  const head = { x: (snake[0].x + d.x + COLS) % COLS, y: (snake[0].y + d.y + ROWS) % ROWS };
+
+  if (snake.some(c => c.x===head.x && c.y===head.y)) {
+    if (score > highScore) highScore = score;
+    updateUI();
+    setState('dead');
+    draw();
+    return;
+  }
+
+  const ate = head.x===food.x && head.y===food.y;
+  snake = ate ? [head,...snake] : [head,...snake.slice(0,-1)];
+
+  if (ate) {
+    score = snake.length - 1;
+    food = rndFood(snake);
+    updateUI();
+    // flash score
+    const el = document.getElementById('score');
+    el.classList.remove('score-flash');
+    void el.offsetWidth;
+    el.classList.add('score-flash');
+  }
+
+  draw();
+}
+
+function draw() {
+  // Background grid
+  for (let y=0; y<ROWS; y++) for (let x=0; x<COLS; x++) {
+    ctx.fillStyle = (x+y)%2===0 ? BG1 : BG2;
+    ctx.fillRect(x*CS, y*CS, CS, CS);
+  }
+
+  // Snake
+  snake.forEach((seg, i) => {
+    const isHead = i === 0;
+    const t = i / snake.length;
+    if (isHead) {
+      ctx.fillStyle = '#86efac';
+      ctx.shadowColor = GREEN;
+      ctx.shadowBlur = 12;
+    } else {
+      // gradient from bright to dim
+      const g = Math.floor(255 * (1 - t * 0.7));
+      ctx.fillStyle = `rgb(${Math.floor(57 + (t*60))},${Math.floor(g)},${Math.floor(20*(1-t*0.5))})`;
+      ctx.shadowColor = 'transparent';
+      ctx.shadowBlur = 0;
+    }
+    const pad = isHead ? 1 : 2;
+    ctx.beginPath();
+    roundRect(ctx, seg.x*CS+pad, seg.y*CS+pad, CS-pad*2, CS-pad*2, isHead ? 5 : 3);
+    ctx.fill();
+
+    // Head eyes
+    if (isHead) {
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#0a0f0a';
+      const ex = dir==='LEFT' ? seg.x*CS+CS*0.25 : dir==='RIGHT' ? seg.x*CS+CS*0.65 : seg.x*CS+CS*0.28;
+      const ey = dir==='UP' ? seg.y*CS+CS*0.25 : dir==='DOWN' ? seg.y*CS+CS*0.65 : seg.y*CS+CS*0.28;
+      const ex2 = dir==='LEFT' ? seg.x*CS+CS*0.25 : dir==='RIGHT' ? seg.x*CS+CS*0.65 : seg.x*CS+CS*0.68;
+      const ey2 = dir==='UP' ? seg.y*CS+CS*0.68 : dir==='DOWN' ? seg.y*CS+CS*0.25 : seg.y*CS+CS*0.28;
+      ctx.beginPath(); ctx.arc(ex, ey, CS*0.1, 0, Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(ex2, ey2, CS*0.1, 0, Math.PI*2); ctx.fill();
+    }
+  });
+
+  ctx.shadowBlur = 0;
+
+  // Food
+  const fx = food.x*CS + CS/2, fy = food.y*CS + CS/2, fr = CS*0.32;
+  const grd = ctx.createRadialGradient(fx-fr*0.3, fy-fr*0.3, fr*0.1, fx, fy, fr);
+  grd.addColorStop(0, '#fde68a');
+  grd.addColorStop(1, '#f97316');
+  ctx.shadowColor = '#f97316'; ctx.shadowBlur = 16;
+  ctx.fillStyle = grd;
+  ctx.beginPath(); ctx.arc(fx, fy, fr, 0, Math.PI*2); ctx.fill();
+
+  // Food shine
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = 'rgba(255,255,255,0.5)';
+  ctx.beginPath(); ctx.arc(fx - fr*0.3, fy - fr*0.3, fr*0.2, 0, Math.PI*2); ctx.fill();
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.moveTo(x+r, y);
+  ctx.lineTo(x+w-r, y); ctx.arcTo(x+w, y, x+w, y+r, r);
+  ctx.lineTo(x+w, y+h-r); ctx.arcTo(x+w, y+h, x+w-r, y+h, r);
+  ctx.lineTo(x+r, y+h); ctx.arcTo(x, y+h, x, y+h-r, r);
+  ctx.lineTo(x, y+r); ctx.arcTo(x, y, x+r, y, r);
+  ctx.closePath();
+}
+
+function togglePause() {
+  if (state === 'playing') { setState('paused'); cancelAnimationFrame(raf); }
+  else if (state === 'paused') { setState('playing'); lastT = null; raf = requestAnimationFrame(loop); }
+  else start();
+}
+
+function dpadPress(d) {
+  if (OPP[d] === dir) return;
+  pendingDir = d;
+  if (state === 'idle' || state === 'dead') start();
+  else if (state === 'paused') togglePause();
+}
+
+window.addEventListener('keydown', e => {
+  if (e.key === ' ') { e.preventDefault(); togglePause(); return; }
+  const d = KEY[e.key];
+  if (d) { e.preventDefault(); dpadPress(d); }
+});
+
+// Initial draw
+setState('idle');
+// Draw empty board
+ctx.fillStyle = BG1;
+ctx.fillRect(0,0,canvas.width,canvas.height);
+for (let y=0; y<ROWS; y++) for (let x=0; x<COLS; x++) {
+  ctx.fillStyle = (x+y)%2===0 ? BG1 : BG2;
+  ctx.fillRect(x*CS, y*CS, CS, CS);
+}
+</script>
+</body>
+</html>
+```
+
